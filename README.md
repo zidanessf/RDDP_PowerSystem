@@ -22,7 +22,7 @@ subject to <img src="/tex/1dffb4e7b499ba4ecd6650b33eed1e2b.svg?invert_in_darkmod
 
 **Lower Bound**
 
-\underline{Q}_{t}\left(x_{t-1} ; \xi_{t}\right)=\left[<p align="center"><img src="/tex/d300cbef3e44bccc736a3c4837bdd2e5.svg?invert_in_darkmode&sanitize=true" align=middle width=310.868052pt height=58.631746799999995pt/></p>\right]
+<img src="/tex/f72e57d62cbc36719141933ed38f60c2.svg?invert_in_darkmode&sanitize=true" align=middle width=59.102830049999994pt height=24.65753399999998pt/> ; <img src="/tex/5df13dd79c0c3eb0415c30b9a313b5af.svg?invert_in_darkmode&sanitize=true" align=middle width=30.331032599999993pt height=22.831056599999986pt/>[<p align="center"><img src="/tex/d300cbef3e44bccc736a3c4837bdd2e5.svg?invert_in_darkmode&sanitize=true" align=middle width=310.868052pt height=58.631746799999995pt/></p>\right]
 
 
 A test for modifyed IEEE 5-bus system(two wind farms and two hydro-units are added).
