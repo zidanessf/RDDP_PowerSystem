@@ -1,45 +1,35 @@
 # RDDP_PowerSystem
-Robust Dual Dynamic Programming for solving real-time operation problems in power system.
+
+This toolbox implemented the Robust Dual Dynamic Programming(RDDP) for solving real-time hydro-thermal dispatch problems under the wind power uncertainty.
 
 The RDDP solves multi-stage minimax problems in the following form:
 
-$\operatorname{minimize} \quad \boldsymbol{q}_{1}^{\top} \boldsymbol{x}_{1}+\mathcal{Q}_{2}\left(\boldsymbol{x}_{1}\right)$
-subject to $\quad W_{1} x_{1} \geq h_{1}$
-$$
-x_{1} \in \mathbb{R}^{n_{1}}
-$$
+<img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/16482209de72951a8693e6f3a40bce97.svg?invert_in_darkmode" align=middle width=197.343795pt height=27.852989999999977pt/>
+subject to <img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/c7a6e236b62ff0e22574281733ee86f9.svg?invert_in_darkmode" align=middle width=77.409585pt height=22.745910000000016pt/>
+<img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/45eb0ae7903832ce0096434d29322d1f.svg?invert_in_darkmode" align=middle width=62.2809pt height=22.564079999999983pt/>
 
-In which $\mathcal{Q}_{t}\left(\boldsymbol{x}_{t-1}\right)$ is called the stage $t$ worst-case cost-to-go function, defined as below:
+In which <img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/6f7c377862afd23cbee482bbb9658658.svg?invert_in_darkmode" align=middle width=68.11101000000001pt height=24.56552999999997pt/> is called the stage <img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/4f4f4e395762a3af4575de74c019ebb5.svg?invert_in_darkmode" align=middle width=5.9139630000000025pt height=20.14650000000001pt/> worst-case cost-to-go function, defined as below:
 
-$\mathcal{Q}_{t}\left(\boldsymbol{x}_{t-1}\right)\max \left\{Q_{t}\left(\boldsymbol{x}_{t-1} = \boldsymbol{\xi}_{t}\right): \boldsymbol{\xi}_{t} \in \boldsymbol{\Xi}_{t}\right\}$
+<img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/f980eb138ccdc7ad0a31477fd85849af.svg?invert_in_darkmode" align=middle width=310.773045pt height=24.56552999999997pt/>
 
-$\begin{aligned}
-Q_{t}\left(\boldsymbol{x}_{t-1} ; \boldsymbol{\xi}_{t}\right)=\left[\begin{array}{cc}
-\operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\mathscr{Q}_{t+1}\left(\boldsymbol{x}_{t}\right) \\
-\text { subject to } & \boldsymbol{T}_{t}\left(\boldsymbol{\xi}_{t}\right) \boldsymbol{x}_{t-1}+\boldsymbol{W}_{t} \boldsymbol{x}_{t} \geq \boldsymbol{h}_{t}\left(\boldsymbol{\xi}_{t}\right) \\
-\boldsymbol{x}_{t} \in \mathbb{R}^{n_{t}}
-\end{array}\right] \\
-& t=2, \ldots, T
-\end{aligned}$
+<img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/85076c56634338e869c856fdcaf963b2.svg?invert_in_darkmode" align=middle width=550.636185pt height=93.78698999999999pt/>
 
 The worst-case cost-to-go function can be bounded from above and from below.
 **Upper Bound**
 
-$\bar{Q}_{t}\left(x_{t-1}\right)$
-$=\operatorname{maximize}\left[\begin{array}{cc}\operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\bar{\alpha}_{t+1}\left(\boldsymbol{x}_{t}\right) \\ \text { subject to } & \boldsymbol{T}_{t}\left(\boldsymbol{\xi}_{t}\right) \boldsymbol{x}_{t-1}+\boldsymbol{W}_{t} \boldsymbol{x}_{t} \geq \boldsymbol{h}_{t}\left(\boldsymbol{\xi}_{t}\right) \\ & \boldsymbol{x}_{t} \in \mathbb{R}^{n_{t}}\end{array}\right]$
-subject to $\xi_{t} \in \Xi_{t}$
+<img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/f62fe982b84615153da9a60daf2acf86.svg?invert_in_darkmode" align=middle width=66.258555pt height=26.90754000000001pt/>
+<img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/51b0862b4295783e6677244ec61af7a3.svg?invert_in_darkmode" align=middle width=442.743345pt height=67.48565999999998pt/>
+subject to <img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/1dffb4e7b499ba4ecd6650b33eed1e2b.svg?invert_in_darkmode" align=middle width=48.868050000000004pt height=22.745910000000016pt/>
 
 **Lower Bound**
 
-\underline{Q}_{t}\left(x_{t-1} ; \xi_{t}\right)=\left[\begin{array}{cl}
-\operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\underline{Q}_{t+1}\left(\boldsymbol{x}_{t}\right) \\
-\text { subject to } & \boldsymbol{T}_{t}\left(\boldsymbol{\xi}_{t}\right) \boldsymbol{x}_{t-1}+\boldsymbol{W}_{t} \boldsymbol{x}_{t} \geq \boldsymbol{h}_{t}\left(\boldsymbol{\xi}_{t}\right) \\
-\boldsymbol{x}_{t} \in \mathbb{R}^{n_{t}}
-\end{array}\right]
+<img src="https://rawgit.com/zidanessf/RDDP_PowerSystem/master/svgs/3ecc99fdcf1dffe238e04d68c7fb474c.svg?invert_in_darkmode" align=middle width=463.135695pt height=70.24346999999999pt/>
+
 
 
 A test for modifyed IEEE 5-bus system(two wind farms and two hydro-units are added).
 --------------------------------------------------------------------------------
+
                       RDDP_PS.jl (c) Shi Yunhui, 2020
 
  Iteration    UpperBound       LowerBound        Gap       Time (s)       # Solves
