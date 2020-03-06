@@ -1,0 +1,66 @@
+syntax = "proto3";
+option py_generic_services = true;
+option java_generic_services = true;
+service EconomicalRegion{
+    rpc GetEconomicalRegion(PSREQ) returns(PSRESP);
+}
+message PSREQ{
+    bytes casefile = 1;// the power system structure is described and delivered by a case file.
+    //PowerGridModel.GridModelResponse grid_model = 2;
+    repeated LOAD load_by_buses = 3;// predicted electrical load and there locations.
+	repeated WIND wind_by_buses = 4;// wind farm locations and predicted power output.
+	repeated HYDRO hydro_by_buses = 5;// hydro units' initial water height and their locations.
+	repeated double price = 6;//reference electricity price
+	OBJECTIVE objective = 7;
+	repeated double system_load = 8;
+
+}
+message OBJECTIVE{
+	double minFuelCost = 1;//minimize fuel cost
+	double minCO2 = 2;//minimize CO2 emission
+	double minERR = 3;//minimize the error of the amount electricity of each plant
+	double minWindCurtailment = 4;//minimize wind curtailment
+}
+message LOAD{
+    int32 bus = 1;//electrical load location
+	string type = 2;//normal,dispatchable
+    repeated double load_of_a_day = 3;//predicted time series of electrical load
+	DRFunction drfunction = 4;// if this load is dispatchable, a drfunction will be given.
+}
+message WIND{
+	int32 bus = 1;//wind farm location 
+	repeated double upper_bound = 2;// predicted wind power upper bound
+	repeated double lower_bound = 3;// predicted wind power lower bound
+}
+message DRFunction{//询问华科
+	double c0 = 1;
+	double c1 = 2;
+	double c2 = 3;//piecewise linear function
+}
+message HYDRO{
+	int32 bus = 1;//hydro unit location
+	repeated double initial_height = 2;// the water level of the pool on the start of a day
+}
+message PSRESP{
+    string termination_condition = 1;// optimal, infeasible, unbounded, error
+    double optimal_value = 2;// if termination_condition is optimal, then its value will be given
+    repeated STATUS status = 3;// units status, on-off = 0-1
+    repeated POWER power = 4;// active power output of units, along with their upper and lower bound
+    repeated POWER_FLOW power_flow = 5;// active power flow of the transmission lines
+    string error = 6;// error message
+}
+message STATUS{
+    int32 gen = 1;
+    repeated int32 status_of_a_day = 2;
+}
+message POWER{
+    int32 gen = 1;
+    repeated double power_of_a_day = 2;
+	repeated double power_of_a_day_upper_bound = 3;
+	repeated double power_of_a_day_lower_bound = 4;
+}
+message POWER_FLOW{
+    int32 f_bus = 1;// from bus of a line
+    int32 t_bus = 2;// to bus of a line
+    repeated double power_flow_of_a_day =3;
+}
