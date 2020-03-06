@@ -1,9 +1,10 @@
 module Problems
 export dayaheadProblem,intradayProblem
-const T,ramp,UT,DT,γ_load,γ_wind,γ_es,α,K_seg= 24,0.33,4,4,200000,5000,5000,0.05,5
+const T,ramp,UT,DT,γ_load,γ_wind,γ_es,α,K_seg= 24,0.33,4,4,200000,5000,5000,0.1,5
 using JuMP,Gurobi,Suppressor,Random,CDDLib,Polyhedra,Profile,Juno
 using MathOptInterface: TerminationStatusCode
-
+include("print_iteration.jl")
+total_solves = 0
 # function intradayProblemBL(ref,data,sense,cost_to_go_bound=1e8)
 #     # T,ramp,UT,DT,γ_load,γ_wind,α = 24,0.25,4,4,10000,5000,0.2
 #     blm = BilevelModel()
@@ -200,6 +201,7 @@ function intradayProblem(ref,data) #used to calculate the dual
     @variable(m,τu[1:length(m[:states])],lower_bound=0)
     @variable(m,τl[1:length(m[:states])],lower_bound=0)
     m[:sum_states] = [m[:states][i] + τu[i] - τl[i] for i in 1:length(m[:states])]
+    m[:sum_states_cons] = []
     @constraint(m,upper_bound,cost_to_go >= sum(τu[i]*γ_load*2 for i in 1:length(m[:states])) + sum(τl[i]*γ_load*2 for i in 1:length(m[:states])))
     # @objective(mo,Max,μ+sum(τ_Pg)+sum(τ_Ses))
     m[:cost_to_go_now] = cost_to_go
@@ -229,7 +231,6 @@ function getUnionVertice(unc::Array{})
     for vertice in unc
         vall = union(vall,vertice)
     end
-    println(length(vall))
     P = vrep([v for v in vall])
     Q = polyhedron(P)
     removevredundancy!(Q)
@@ -475,6 +476,8 @@ function vertex_enumeration_primal(case_max,vertice,case_dict,data,t,N_ITER)
         #     end
         # end
         optimize!(case_max)
+        global total_solves
+        total_solves += 1
         @assert termination_status(case_max) == MOI.OPTIMAL
         if objective_value(case_max) <= 0
             @warn objective_value(case_max)
@@ -508,6 +511,8 @@ function vertex_enumeration_dual(case_max,vertice,case_dict,data,t,N_ITER)
             n_benders += 1
             @assert n_benders <= 500
             optimize!(case_max)#get the worst scenario
+            global total_solves
+            total_solves += 1
             if termination_status(case_max) != MOI.OPTIMAL
                 error(termination_status(case_max))
             end
@@ -531,6 +536,8 @@ function vertex_enumeration_dual(case_max,vertice,case_dict,data,t,N_ITER)
             sum(mo[:τ_Pg][gen]*value(case_max[:Pg][gen]) for gen in keys(case_max[:Pg])) +
             sum(mo[:τ_Ses][gen]*value(case_max[:Ses][gen]) for gen in keys(case_max[:Ses])))
             optimize!(mo)
+            global total_solves
+            total_solves += 1
             @assert termination_status(mo) != MOI.INFEASIBLE
             if N_ITER == 1
                 break
@@ -557,6 +564,8 @@ function vertex_enumeration_dual(case_max,vertice,case_dict,data,t,N_ITER)
         fix(case_max[:Pw_err][gen],wst_vertex[idx]*α*data[:wind_power][gen])
     end
     optimize!(case_max)
+    global total_solves
+    total_solves += 1
     return case_max,wst_vertex
 end
 function ForwardPassPrimal(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},vertice::Array{},case_dict::Dict,data,N_ITER)
@@ -589,10 +598,14 @@ function ForwardPassPrimal(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intr
         end
         optimize!(case_base)
         optimize!(case_max)
+        global total_solves
+        total_solves += 2
         @assert termination_status(case_base) == MOI.OPTIMAL
         @assert termination_status(case_max) == MOI.OPTIMAL
         if t == 1
-            gap = (objective_value(case_max) - objective_value(case_base))/objective_value(case_max)
+            additional[:UpperBound] = objective_value(case_max)
+            additional[:LowerBound] = objective_value(case_base)
+            additional[:Gap] = (additional[:UpperBound] - additional[:LowerBound])/additional[:UpperBound]
         end
         differ += value(case_max[:cost_now]) - value(case_base[:cost_now])
         # case_max[:cost_to_go_copy] =  value(case_max[:cost_to_go])
@@ -602,8 +615,7 @@ function ForwardPassPrimal(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intr
         # @info("t = $t \n    objective: $(objective_value(case_base))\n    unbalance:$(value.(case_base[:loadCut_aux]))")
         # obj_now[t] = objective_value(case_base) - value(case_base[:cost_to_go])
     end
-    additional[:gap] = gap
-    additional[:differ] = differ/sum(value(intraday[t][:cost_now]) for t in 1:T)
+    # additional[:differ] = differ/sum(value(intraday[t][:cost_now]) for t in 1:T)
     return intraday,intradayMax,additional
 end
 function ForwardPassDual(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},vertice::Array{},case_dict::Dict,data,N_ITER)
@@ -634,6 +646,8 @@ function ForwardPassDual(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intrad
             fix(case_base[:Pw_err][gen],wst_vertex[idx]*α*data[t][:wind_power][gen])
         end
         optimize!(case_base)
+        global total_solves
+        total_solves += 1
         @assert termination_status(case_base) == MOI.OPTIMAL
         if t == 1
             gap = (objective_value(case_max) - objective_value(case_base))/objective_value(case_max)
@@ -660,32 +674,39 @@ function BackwardPassPrimal(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.
         # **update the overestimator**
         case_max = intradayMax[t+1]
         # case_max_clean = deepcopy(case_max)
-        case_max,wst_vertex = vertex_enumeration(case_max,vertice[t+1],case_dict,data[t+1],t+1,N_ITER+1)
+        case_max,wst_vertex = vertex_enumeration_primal(case_max,vertice[t+1],case_dict,data[t+1],t+1,N_ITER+1)
         for (idx,gen) in enumerate(keys(case_dict[:windfarm]))
             # @info(wst_vertex)
-            fix(case_max[:Pw_err][gen],wst_vertex[idx]*α*data[t][:wind_power][gen])
+            fix(case_max[:Pw_err][gen],wst_vertex[idx]*α*data[t+1][:wind_power][gen])
         end
         optimize!(case_max)
+        global total_solves
+        total_solves += 1
         # create variable y_k
-        dual_of_obj = @variable(intradayMax[t],lower_bound=0)
-        if N_ITER == 1
-            @constraint(intradayMax[t],sum_y,dual_of_obj == 1)
-        end
         if objective_value(case_max) < value(intradayMax[t][:cost_to_go]) ||  N_ITER == 1
         # if true
+            dual_of_obj = @variable(intradayMax[t],lower_bound=0)
+            if N_ITER == 1
+                @constraint(intradayMax[t],sum_y,dual_of_obj == 1)
+            end
             v_upper = objective_value(case_max)
             #modify objective
             set_normalized_coefficient(intradayMax[t][:upper_bound],dual_of_obj,-v_upper)
-            @info(intradayMax[t][:upper_bound])
+            # @info(intradayMax[t][:upper_bound])
             # modify constraint  ∑y_k == 1
             set_normalized_coefficient(intradayMax[t][:sum_y],dual_of_obj,1)
             # @info(intradayMax[t][:sum_y])
             # add constraint
             # x_i - ∑y_k*x_{ki} + τu_i - τl_i == 0 for x_i in states variables
+            for con in intradayMax[t][:sum_states_cons]
+                delete(intradayMax[t],con)
+                intradayMax[t][:sum_states_cons] = []
+            end
             for i in 1:length(intradayMax[t][:sum_states])
                 add_to_expression!(intradayMax[t][:sum_states][i], - dual_of_obj*value(intraday[t][:states][i]))
                 # @info(intradayMax[t][:sum_states][i])
-                @constraint(intradayMax[t],intradayMax[t][:sum_states][i] == 0)
+                tmp_con = @constraint(intradayMax[t],intradayMax[t][:sum_states][i] == 0)
+                push!(intradayMax[t][:sum_states_cons],tmp_con)
             end
             # om = intradayMax[t][:overestimator]
             # v_upper = sum(value(intradayMaxToken[τ][:cost_now]) for τ in t+1:T)
@@ -696,31 +717,35 @@ function BackwardPassPrimal(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.
         intradayMax[t+1] = case_max
         # **solve the updated lower problem**
         for (idx,gen) in enumerate(keys(case_dict[:windfarm]))
-            fix(intraday[t+1][:Pw_err][gen],wst_vertex[idx]*α*data[t][:wind_power][gen])
+            fix(intraday[t+1][:Pw_err][gen],wst_vertex[idx]*α*data[t+1][:wind_power][gen])
         end
         optimize!(intraday[t+1])
+        global total_solves
+        total_solves += 1
         # **update the underestimator**
-        lower_cut = AffExpr()
-        for gen in keys(case_dict[:battery])
-            #firstly the optimistic(base) case
-            pi =  dual(FixRef(intraday[t+1][:Sesa][gen]))
-            add_to_expression!(lower_cut,pi * (intraday[t][:Ses][gen] - value(intraday[t][:Ses][gen])))
-            # pi_pgl = shadow_price()
-            # add_to_expression!(dayahead_cut,pi_pgu*(dayahead[:Pgu][gen] - value(dayahead[:Pgu][gen])) + pi_pgl*(dayahead[:Pgu][gen] - value(dayahead[:Pgu][gen])))
+        if objective_value(intraday[t+1]) > value(intraday[t][:cost_to_go]) ||  N_ITER == 1
+            lower_cut = AffExpr()
+            for gen in keys(case_dict[:battery])
+                #firstly the optimistic(base) case
+                pi =  dual(FixRef(intraday[t+1][:Sesa][gen]))
+                add_to_expression!(lower_cut,pi * (intraday[t][:Ses][gen] - value(intraday[t][:Ses][gen])))
+                # pi_pgl = shadow_price()
+                # add_to_expression!(dayahead_cut,pi_pgu*(dayahead[:Pgu][gen] - value(dayahead[:Pgu][gen])) + pi_pgl*(dayahead[:Pgu][gen] - value(dayahead[:Pgu][gen])))
+            end
+            for gen in intraday[t][:gens]
+                pi =  dual(FixRef(intraday[t+1][:Pga][gen]))
+                add_to_expression!(lower_cut,pi * (intraday[t][:Pg][gen] - value(intraday[t][:Pg][gen])))
+            end
+            # v_lower = sum(value(intraday[τ][:cost_now]) for τ in t+1:T)
+            v_lower = objective_value(intraday[t+1])
+            add_to_expression!(lower_cut,v_lower)
+            @constraint(intraday[t],intraday[t][:cost_to_go] >= lower_cut)
         end
-        for gen in intraday[t][:gens]
-            pi =  dual(FixRef(intraday[t+1][:Pga][gen]))
-            add_to_expression!(lower_cut,pi * (intraday[t][:Pg][gen] - value(intraday[t][:Pg][gen])))
-        end
-        # v_lower = sum(value(intraday[τ][:cost_now]) for τ in t+1:T)
-        v_lower = objective_value(intraday[t+1])
-        add_to_expression!(lower_cut,v_lower)
-        @constraint(intraday[t],intraday[t][:cost_to_go] >= lower_cut)
     end
     return intraday,intradayMax
 end
 
-function BackwardPassDual(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},intradayMaxToken::Array{JuMP.Model},vertice::Array{},case_dict::Dict,data,N_ITER)
+function BackwardPassDual(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},intradayMaxToken::Array{JuMP.Model},vertice::Array{},case_dict::Dict,data,N_ITER,start=1,stop=T)
     # intraday = deepcopy(intraday)
     # intradayMax = deepcopy(intradayMax)
     for t in [T-x+1 for x in 2:T]#回代步骤
@@ -739,9 +764,11 @@ function BackwardPassDual(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Mo
         intradayMax[t+1] = case_max_clean
         # **solve the updated lower problem**
         for (idx,gen) in enumerate(keys(case_dict[:windfarm]))
-            fix(intraday[t+1][:Pw_err][gen],wst_vertex[idx]*α*data[t][:wind_power][gen])
+            fix(intraday[t+1][:Pw_err][gen],wst_vertex[idx]*α*data[t+1][:wind_power][gen])
         end
         optimize!(intraday[t+1])
+        global total_solves
+        total_solves += 1
         # **update the underestimator**
         lower_cut = AffExpr()
         for gen in keys(case_dict[:battery])
@@ -767,20 +794,35 @@ function RDDP(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},dayahea
     obj_prev = [99999.9 for t in 1:T]
     obj_now = [99999.9 for t in 1:T]
     n_iter = 0
+    global total_solves
+    total_solves = 0
     additional = Dict()
-    @info("Number of iteration      Gap     Differ")
-    @suppress_out while true
+    print_banner(stdout)
+    print_iteration_header(stdout)
+    t1 = time()
+    while true
         n_iter += 1
-        # intradayMaxToken = deepcopy(intradayMax)#single use
-        # @info([termination_status(intraday[t]) for t in 1:T])
-        intraday,intradayMax,intradayMaxToken,additional = Problems.ForwardPassDual(dayahead,intraday,intradayMax,vertice_series,case_dict,data,n_iter)
+        # intraday,intradayMax,intradayMaxToken,additional = Problems.ForwardPassDual(dayahead,intraday,intradayMax,vertice_series,case_dict,data,n_iter)
+        intraday,intradayMax,additional = @suppress_out Problems.ForwardPassPrimal(dayahead,intraday,intradayMax,vertice_series,case_dict,data,n_iter)
+        additional[:Iteration] = n_iter
+        additional[:TotalSolves] = total_solves
+        t2 = time()
+        additional[:Time] = t2 - t1
         # @info("****LoadCut = $(sum(value(intraday[t][:loadCut]) for t in 1:T))****")
-        # error("Not finished")
-        if n_iter >= 40
+        print_iteration(stdout,additional)
+        if n_iter >= 200
+            printstyled("Fail to converge. ";color=:red)
+            print("$n_iter iterations in $(additional[:Time]) seconds. \n")
             break
         end
-        @info("$n_iter      $(additional[:gap])        $(additional[:differ])")
-        intraday,intradayMax = Problems.BackwardPassDual(intraday,intradayMax,intradayMaxToken,vertice_series,case_dict,data,n_iter)
+        if n_iter >=2 && additional[:Gap] <= 1e-2
+            printstyled("Converged. ";color=:green)
+            print("$n_iter iterations in $(round(additional[:Time];digits=3)) seconds. \n")
+            break
+        end
+        # @info("$n_iter      $(additional[:gap])        $(additional[:differ])")
+        intraday,intradayMax = @suppress_out Problems.BackwardPassPrimal(intraday,intradayMax,vertice_series,case_dict,data,n_iter)
+        # intraday,intradayMax = Problems.BackwardPassDual(intraday,intradayMax,intradayMaxToken,vertice_series,case_dict,data,n_iter)
         # wait_for_key("press any key to continue")
         # sleep(0.1)
         # if n_iter%5 == 0

@@ -1,4 +1,5 @@
 cd("/home/cxlab/syh/repo/SRUC")
+clearconsole()
 using Revise
 using JuMP,Gurobi,Suppressor,PowerModels,CSV,Plots
 Base.GC.enable(false)
@@ -13,7 +14,7 @@ case = parse_file("input/case5.m")
 pm = build_model(case, ACPPowerModel,PowerModels.post_opf)
 case_dict = pm.ref[:nw][0];
 pmax = maximum([case_dict[:gen][gen]["pmax"] for gen in keys(case_dict[:gen])]);
-battery = Dict("pmax_in"=>pmax/6,"pmax_out"=>pmax/6,"η_in"=>0.8,"η_out"=>0.8,"C_max"=>pmax/6 * 6,"SOC_max"=>0.9,"SOC_min"=>0.1,"SOC_int"=>0.5,"deg_cost"=>0.01);
+battery = Dict("pmax_in"=>pmax/6,"pmax_out"=>pmax/6,"η_in"=>0.7,"η_out"=>0.7,"C_max"=>pmax/6 * 6,"SOC_max"=>0.9,"SOC_min"=>0.1,"SOC_int"=>0.5,"deg_cost"=>0.01);
 case_dict[:battery] = Dict([(i,battery) for i in range(1,stop=4)]);
 case_dict[:windfarm] = Dict([(i,0) for i in range(1,stop=2)]);
 for gen in keys(case_dict[:gen])
@@ -36,7 +37,7 @@ data = [Dict(:wind_power=>Dict(1=>r*wind_power[t,:wf1],2=>r*wind_power[t,:wf2]),
             :load=>load_real[t]) for t in 1:T]
 
 # problem construction
-# clearconsole()
+clearconsole()
 dayahead = Problems.dayaheadProblem(case_dict,data)
 @info("calculating initial solution by prior list...")
 dayahead = Problems.prior_list_modification(dayahead,case_dict)
@@ -45,10 +46,11 @@ optimize!(dayahead)
 @info("loadCut: $(value(sum(dayahead[:loadCut])))")
 @info("ug: $(sum(value.(dayahead[:ug]).data,dims=1))")
 # initialization
-intraday = [Problems.intradayProblem(case_dict,data[t]) for t in 1:T]
+intraday = @suppress [Problems.intradayProblem(case_dict,data[t]) for t in 1:T]
 intraday[T] = Problems.fix_tail(intraday[T],case_dict)# tackle the tail effect
 intradayMax = deepcopy(intraday);
 uncertainties = [Problems.PolygonUncertaintySet([0,0,0],[1 0 0;0 1 0;0 0 1],1.5),Problems.PolygonUncertaintySet([1,1,1],[1 0 0;0 1 0;0 0 1],1.5)]
+# uncertainties = [Problems.PolygonUncertaintySet([0,0,0],[1 0 0;0 1 0;0 0 1],1.5)]
 vertice = Problems.getUnionVertice(uncertainties)
 vertice_series = [vertice for t in 1:T]
 # @suppress_err begin
@@ -65,7 +67,6 @@ real = [sum(value(intraday[τ][:cost_now]) for τ in t:T) for t in 1:T]
 upper = additional[:upper]
 # upper = [objective_value(intradayMax[t]) for t in 1:T]
 lower = [objective_value(intraday[t]) for t in 1:T]
-plot([upper,lower,real])
 # plot(wind_worst)
 # mean_cost,worst_cost = Problems.evalutaion(dayahead,intraday,intradayMax,case_dict,data)
 # printstyled("------------SUMMARY-------------\n";color=:green)
@@ -75,3 +76,4 @@ plot([upper,lower,real])
 Base.GC.enable(true)
 Base.GC.enable(true)
 Base.GC.gc()
+plot([upper,lower,real])
