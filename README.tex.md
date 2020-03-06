@@ -23,13 +23,14 @@ Q_{t}\left(\boldsymbol{x}_{t-1} ; \boldsymbol{\xi}_{t}\right)=\left[\begin{array
 \end{aligned}$
 
 The worst-case cost-to-go function can be bounded from above and from below.
-**Upper Bound**
+
+1. **Upper Bound**
 
 $\bar{Q}_{t}\left(x_{t-1}\right)$
 $=\operatorname{maximize}\left[\begin{array}{cc}\operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\bar{\alpha}_{t+1}\left(\boldsymbol{x}_{t}\right) \\ \text { subject to } & \boldsymbol{T}_{t}\left(\boldsymbol{\xi}_{t}\right) \boldsymbol{x}_{t-1}+\boldsymbol{W}_{t} \boldsymbol{x}_{t} \geq \boldsymbol{h}_{t}\left(\boldsymbol{\xi}_{t}\right) \\ & \boldsymbol{x}_{t} \in \mathbb{R}^{n_{t}}\end{array}\right]$
 subject to $\xi_{t} \in \Xi_{t}$
 
-**Lower Bound**
+2. **Lower Bound**
 
 $\underline{Q}_{t}\left(x_{t-1} ; \xi_{t}\right)=\left[\begin{array}{cl}
 \operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\underline{Q}_{t+1}\left(\boldsymbol{x}_{t}\right) \\
