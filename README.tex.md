@@ -31,7 +31,7 @@ subject to $\xi_{t} \in \Xi_{t}$
 
 **Lower Bound**
 
-\underline{Q}_{t}\left(x_{t-1} ; \xi_{t}\right)=\left[\begin{array}{cl}
+$\underline{Q}_{t}\left(x_{t-1}$ ; $\xi_{t}\right)=\left$[\begin{array}{cl}
 \operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\underline{Q}_{t+1}\left(\boldsymbol{x}_{t}\right) \\
 \text { subject to } & \boldsymbol{T}_{t}\left(\boldsymbol{\xi}_{t}\right) \boldsymbol{x}_{t-1}+\boldsymbol{W}_{t} \boldsymbol{x}_{t} \geq \boldsymbol{h}_{t}\left(\boldsymbol{\xi}_{t}\right) \\
 \boldsymbol{x}_{t} \in \mathbb{R}^{n_{t}}
