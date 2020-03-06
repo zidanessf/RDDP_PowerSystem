@@ -4,15 +4,15 @@ This toolbox implemented the Robust Dual Dynamic Programming(RDDP) for solving r
 
 The RDDP solves multi-stage minimax problems in the following form:
 
-<img src="https://render.githubusercontent.com/render/math?$\operatorname{minimize} \quad \boldsymbol{q}_{1}^{\top} \boldsymbol{x}_{1}+\mathcal{Q}_{2}\left(\boldsymbol{x}_{1}\right)$>
-subject to <img src="https://render.githubusercontent.com/render/math?$\quad W_{1} x_{1} \geq h_{1}$>
-<img src="https://render.githubusercontent.com/render/math?$x_{1} \in \mathbb{R}^{n_{1}}$>
+<img src="https://render.githubusercontent.com/render/math?math=$\operatorname{minimize} \quad \boldsymbol{q}_{1}^{\top} \boldsymbol{x}_{1}+\mathcal{Q}_{2}\left(\boldsymbol{x}_{1}\right)$>
+subject to <img src="https://render.githubusercontent.com/render/math?math=$\quad W_{1} x_{1} \geq h_{1}$>
+<img src="https://render.githubusercontent.com/render/math?math=$x_{1} \in \mathbb{R}^{n_{1}}$>
 
-In which <img src="https://render.githubusercontent.com/render/math?$\mathcal{Q}_{t}\left(\boldsymbol{x}_{t-1}\right)$> is called the stage *t* worst-case cost-to-go function, defined as below:
+In which <img src="https://render.githubusercontent.com/render/math?math=$\mathcal{Q}_{t}\left(\boldsymbol{x}_{t-1}\right)$> is called the stage *t* worst-case cost-to-go function, defined as below:
 
-<img src="https://render.githubusercontent.com/render/math?$\mathcal{Q}_{t}\left(\boldsymbol{x}_{t-1}\right) = \max \left\{Q_{t}\left(\boldsymbol{x}_{t-1} = \boldsymbol{\xi}_{t}\right): \boldsymbol{\xi}_{t} \in \boldsymbol{\Xi}_{t}\right\}$>
+<img src="https://render.githubusercontent.com/render/math?math=$\mathcal{Q}_{t}\left(\boldsymbol{x}_{t-1}\right) = \max \left\{Q_{t}\left(\boldsymbol{x}_{t-1} = \boldsymbol{\xi}_{t}\right): \boldsymbol{\xi}_{t} \in \boldsymbol{\Xi}_{t}\right\}$>
 
-<img src="https://render.githubusercontent.com/render/math?$\begin{aligned}
+<img src="https://render.githubusercontent.com/render/math?math=$\begin{aligned}
 Q_{t}\left(\boldsymbol{x}_{t-1} ; \boldsymbol{\xi}_{t}\right)=\left[\begin{array}{cc}
 \operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\mathscr{Q}_{t+1}\left(\boldsymbol{x}_{t}\right) \\
 \text { subject to } & \boldsymbol{T}_{t}\left(\boldsymbol{\xi}_{t}\right) \boldsymbol{x}_{t-1}+\boldsymbol{W}_{t} \boldsymbol{x}_{t} \geq \boldsymbol{h}_{t}\left(\boldsymbol{\xi}_{t}\right) \\
@@ -24,13 +24,13 @@ Q_{t}\left(\boldsymbol{x}_{t-1} ; \boldsymbol{\xi}_{t}\right)=\left[\begin{array
 The worst-case cost-to-go function can be bounded from above and from below.
 **Upper Bound**
 
-<img src="https://render.githubusercontent.com/render/math?$\bar{Q}_{t}\left(x_{t-1}\right)$
+<img src="https://render.githubusercontent.com/render/math?math=$\bar{Q}_{t}\left(x_{t-1}\right)$
 $=\operatorname{maximize}\left[\begin{array}{cc}\operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\bar{\alpha}_{t+1}\left(\boldsymbol{x}_{t}\right) \\ \text { subject to } & \boldsymbol{T}_{t}\left(\boldsymbol{\xi}_{t}\right) \boldsymbol{x}_{t-1}+\boldsymbol{W}_{t} \boldsymbol{x}_{t} \geq \boldsymbol{h}_{t}\left(\boldsymbol{\xi}_{t}\right) \\ & \boldsymbol{x}_{t} \in \mathbb{R}^{n_{t}}\end{array}\right]$
 subject to $\xi_{t} \in \Xi_{t}$>
 
 **Lower Bound**
 
-<img src="https://render.githubusercontent.com/render/math?$\underline{Q}_{t}\left(x_{t-1} ; \xi_{t}\right)=\left[\begin{array}{cl}
+<img src="https://render.githubusercontent.com/render/math?math=$\underline{Q}_{t}\left(x_{t-1} ; \xi_{t}\right)=\left[\begin{array}{cl}
 \operatorname{minimize} & \boldsymbol{q}_{t}^{\top} \boldsymbol{x}_{t}+\underline{Q}_{t+1}\left(\boldsymbol{x}_{t}\right) \\
 \text { subject to } & \boldsymbol{T}_{t}\left(\boldsymbol{\xi}_{t}\right) \boldsymbol{x}_{t-1}+\boldsymbol{W}_{t} \boldsymbol{x}_{t} \geq \boldsymbol{h}_{t}\left(\boldsymbol{\xi}_{t}\right) \\
 \boldsymbol{x}_{t} \in \mathbb{R}^{n_{t}}
