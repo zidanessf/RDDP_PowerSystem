@@ -1,6 +1,4 @@
 
-<!doctype html>
-<html>
 <head>
 <meta charset='UTF-8'><meta name='viewport' content='width=device-width initial-scale=1'>
 <title></title><link href='https://fonts.loli.net/css?family=Open+Sans:400italic,700italic,700,400&subset=latin,latin-ext' rel='stylesheet' type='text/css' /><style type='text/css'>html {overflow-x: initial !important;}:root { --bg-color:#ffffff; --text-color:#333333; --select-text-bg-color:#B5D6FC; --select-text-font-color:auto; --monospace:"Lucida Console",Consolas,"Courier",monospace; }
@@ -387,5 +385,3 @@ Q_{t}\left(\boldsymbol{x}_{t-1} ; \boldsymbol{\xi}_{t}\right)=\left[\begin{array
 <span>       69    5.340461e+05   5.255546e+05   1.590024e-02   1.570904e+01     122360</span>
 <span>       70    5.247515e+05   5.255546e+05  -1.530477e-03   1.597255e+01     124146</span>
 <span>Converged. 70 iterations in 15.973 seconds.</span></p></div>
-</body>
-</html>
