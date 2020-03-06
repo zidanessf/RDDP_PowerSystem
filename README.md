@@ -14,13 +14,14 @@ In which <img src="/tex/6f7c377862afd23cbee482bbb9658658.svg?invert_in_darkmode&
 <img src="/tex/85076c56634338e869c856fdcaf963b2.svg?invert_in_darkmode&sanitize=true" align=middle width=550.81504335pt height=93.84671339999997pt/>
 
 The worst-case cost-to-go function can be bounded from above and from below.
-**Upper Bound**
+
+1. **Upper Bound**
 
 <img src="/tex/f62fe982b84615153da9a60daf2acf86.svg?invert_in_darkmode&sanitize=true" align=middle width=66.31741544999998pt height=26.97711060000001pt/>
 <img src="/tex/51b0862b4295783e6677244ec61af7a3.svg?invert_in_darkmode&sanitize=true" align=middle width=442.83160515pt height=67.54534379999997pt/>
 subject to <img src="/tex/1dffb4e7b499ba4ecd6650b33eed1e2b.svg?invert_in_darkmode&sanitize=true" align=middle width=48.99537059999999pt height=22.831056599999986pt/>
 
-**Lower Bound**
+2. **Lower Bound**
 
 <img src="/tex/3ecc99fdcf1dffe238e04d68c7fb474c.svg?invert_in_darkmode&sanitize=true" align=middle width=463.2241119pt height=70.30311089999996pt/>
 
