@@ -1,9 +1,12 @@
 module Problems
 export dayaheadProblem,intradayProblem
+using JuMP,Gurobi,Suppressor,Random,CDDLib,Polyhedra,DataFrames,Distributed,SharedArrays
 const T,ramp,UT,DT,γ_load,γ_wind,γ_es,α,K_seg= 24,0.33,4,4,200000,5000,5000,0.1,5
-using JuMP,Gurobi,Suppressor,Random,CDDLib,Polyhedra,Profile,Juno
-using MathOptInterface: TerminationStatusCode
+# const SHARED_GUROBI_ENV = [Gurobi.Env() for i = 1:25]
+@everywhere using JuMP
+@everywhere using Distributed
 include("print_iteration.jl")
+
 total_solves = 0
 # function intradayProblemBL(ref,data,sense,cost_to_go_bound=1e8)
 #     # T,ramp,UT,DT,γ_load,γ_wind,α = 24,0.25,4,4,10000,5000,0.2
@@ -387,113 +390,106 @@ function prior_list_modification(dayahead,ref)
     return dayahead
 end
 
-function fix_tail(model::JuMP.Model,ref)
+function fix_tail(m::RealTimeDispatchModel)
+    model = m.intraday[T]
+    ref = m.case_dict
     ess = keys(ref[:battery])
+    @variable(model,Qes[ess])
+    @constraint(model,Qes_lower[gen = ess],Qes[gen] >= -0.3 * γ_load * (model[:Ses][gen] -  ref[:battery][gen]["SOC_int"] * ref[:battery][gen]["C_max"]))
+    @constraint(model,Qes_upper[gen = ess],Qes[gen] >= 0.3 * γ_load * (model[:Ses][gen] - ref[:battery][gen]["SOC_int"] * ref[:battery][gen]["C_max"]))
+    @constraint(model,model[:ess_tail_cost] >= sum(Qes))
+    model = m.intradayMax[T]
     @variable(model,Qes[ess])
     @constraint(model,Qes_lower[gen = ess],Qes[gen] >= -0.3 * γ_load * (model[:Ses][gen] -  ref[:battery][gen]["SOC_int"] * ref[:battery][gen]["C_max"]))
     @constraint(model,Qes_upper[gen = ess],Qes[gen] >= 0.3 * γ_load * (model[:Ses][gen] - ref[:battery][gen]["SOC_int"] * ref[:battery][gen]["C_max"]))
     @constraint(model,model[:ess_tail_cost] >= sum(Qes))
     return model
 end
-function fixall(case_now,case_prev,dayahead,case_dict,t)
-    for gen in dayahead[:gens]
+function fixall(t)
+    for gen in Main.RTD.dayahead[:gens]
         # fix(case_base[:Pgu][gen], value(dayahead[:Pgu][gen,t])) # box method
         # fix(case_base[:Pgl][gen], value(dayahead[:Pgl][gen,t]))
         # fix(case_max[:Pgu][gen], value(dayahead[:Pgu][gen,t]))
         # fix(case_max[:Pgl][gen], value(dayahead[:Pgl][gen,t]))
-        fix(case_now[:ug][gen],value(dayahead[:ug][gen,t]))
+        x = value(Main.RTD.dayahead[:ug][gen,t])
+        fix(Main.RTD.intraday[t][:ug][gen],x)
+        fix(Main.RTD.intradayMax[t][:ug][gen],x)
     end
     # fix the current state varible
-    for gen in dayahead[:gens]
-        if case_prev != Nothing
-            fix(case_now[:Pga][gen],value(case_prev[:Pg][gen]))
-            # @constraint(Lower(case_min),case_min[:Pga][gen] == value(intradayMaxToken[t-1][:Pg][gen]))#t-1 Max Caution: only max not
+    for gen in Main.RTD.dayahead[:gens]
+        if t != 1
+            x = value(Main.intraday[t-1][:Pg][gen])
+            fix(Main.RTD.intraday[t][:Pga][gen],x)
+            fix(Main.RTD.intradayMax[t][:Pga][gen],x)
         end
     end
-    for gen in keys(case_dict[:battery])
-        if case_prev != Nothing
-            Sesa_real = value(case_prev[:Sesa][gen]) -
-            min(value(case_prev[:Pes][gen])*case_dict[:battery][gen]["η_in"],0) -
-            max(value(case_prev[:Pes][gen])/case_dict[:battery][gen]["η_out"],0)
+    for gen in keys(Main.RTD.case_dict[:battery])
+        if t != 1
+            Sesa_real = value(Main.RTD.intraday[t-1][:Sesa][gen]) -
+            min(value(Main.RTD.intraday[t-1][:Pes][gen])*Main.RTD.case_dict[:battery][gen]["η_in"],0) -
+            max(value(Main.RTD.intraday[t-1][:Pes][gen])/Main.RTD.case_dict[:battery][gen]["η_out"],0)
             # @constraint(case_min,case_min[:Sesa][gen] == Sesa_real)
-            fix(case_now[:Sesa][gen],Sesa_real)
+            fix(Main.RTD.intraday[t][:Sesa][gen],Sesa_real)
+            fix(Main.RTD.intradayMax[t][:Sesa][gen],Sesa_real)
+            # @everywhere fix(Main.intradayMax[$t][:Sesa][$gen],$Sesa_real)
         else
-            fix(case_now[:Sesa][gen],case_dict[:battery][gen]["SOC_int"]*case_dict[:battery][gen]["C_max"])
+            soc_int = Main.RTD.case_dict[:battery][gen]["SOC_int"]*Main.RTD.case_dict[:battery][gen]["C_max"]
+            fix(Main.RTD.intraday[t][:Sesa][gen],soc_int)
+            fix(Main.RTD.intradayMax[t][:Sesa][gen],soc_int)
+            # @everywhere fix(Main.intradayMax[$t][:Sesa][$gen],$soc_int)
         end
     end
-    return case_now
 end
-function vertex_enumeration_primal(case_max,vertice,case_dict,data,t,N_ITER)
+function fix_and_optimize(t,i)
+    case_tmp = Main.RTD.intradayMax[t] # TODO: not sure
+    # set_opt【imizer(case_tmp,with_optimizer(Gurobi.Optimizer,Main.env))
+    vertex = Main.RTD.vertice[t][i]
+    windpower = Main.RTD.data[t][:wind_power]
+    for (idx,gen) in enumerate(keys(Main.RTD.case_dict[:windfarm]))
+        @assert abs(vertex[idx])*α <= 0.5
+        fix(case_tmp[:Pw_err][gen],vertex[idx]*α*windpower[gen])
+        # try
+        #     fix(case_tmp[:Pw_err][gen],vertex[idx]*α*data[:wind_power][gen])
+        # catch e
+        #     gurobi_env = Gurobi.Env()
+        #     set_optimizer(case_tmp,with_optimizer(Gurobi.Optimizer,gurobi_env))
+        #     fix(case_tmp[:Pw_err][gen],vertex[idx]*α*data[:wind_power][gen])
+        # end
+    end
+    @suppress optimize!(case_tmp)
+    # @assert termination_status(case_tmp) == MOI.OPTIMAL
+    if objective_value(case_tmp) <= 0
+        @warn("objective less than zero with vertex $vertex")
+    end
+    # if objective_value(case_max) >= wst_case_value
+    #     wst_case_value = objective_value(case_max)
+    #     wst_vertex = vertex
+    #     # wst_case_max = deepcopy(case_max)
+    # end
+    return objective_value(case_tmp)
+    # @info("$i finished in $(round(t2-t1; digits=2)) seconds on worker $(myid())")
+
+end
+function vertex_enumeration_primal(model::RealTimeDispatchModel,t)
+    start = time()
     wst_case_value = 0
     wst_vertex = 0
     wst_case_max = Nothing
-    for vertex in vertice #vertex enumeration getting the worst case
-        for (idx,gen) in enumerate(keys(case_dict[:windfarm]))
-            @assert abs(vertex[idx])*α <= 0.5
-            fix(case_max[:Pw_err][gen],vertex[idx]*α*data[:wind_power][gen])
-        end
-        #benders decomposition for solving the worst scenario Problems,cuts can be shared among vertice
-        # UB = 1e9
-        # LB = 1
-        # n_benders = 0
-        # while true
-        #     n_benders += 1
-        #     @assert n_benders <= 500
-        #     optimize!(case_max)#get the worst scenario
-        #     if termination_status(case_max) != MOI.OPTIMAL
-        #         error(termination_status(case_max))
-        #     end
-        #     if t == T
-        #         break
-        #     end
-        #     if abs(UB - LB)/LB <= 1e-3
-        #         # println("Benders iteration number = $n_benders")
-        #         # println("GAP = $(UB-LB)")
-        #         break
-        #     end
-        #     LB = max(LB,objective_value(case_max))
-        #     mo = case_max[:overestimator]
-        #     # for gen in keys(mo[:τ_Pg])
-        #     #     set_objective_coefficient(mo,mo[:τ_Pg][gen],value(case_max[:Pg][gen]))
-        #     # end
-        #     # for gen in keys(mo[:τ_Ses])
-        #     #     set_objective_coefficient(mo,mo[:τ_Ses][gen],value(case_max[:Ses][gen]))
-        #     # end
-        #     @objective(mo,Max,mo[:μ] +
-        #     sum(mo[:τ_Pg][gen]*value(case_max[:Pg][gen]) for gen in keys(case_max[:Pg])) +
-        #     sum(mo[:τ_Ses][gen]*value(case_max[:Ses][gen]) for gen in keys(case_max[:Ses])))
-        #     optimize!(mo)
-        #     @assert termination_status(mo) != MOI.INFEASIBLE
-        #     if N_ITER == 1
-        #         break
-        #     else
-        #         @assert termination_status(mo) == MOI.OPTIMAL
-        #         UB = min(UB,objective_value(case_max) - value(case_max[:cost_to_go]) + objective_value(mo))
-        #         #add cut
-        #         @constraint(case_max,case_max[:cost_to_go] >= objective_value(mo) +
-        #         sum((case_max[:Pg][gen] - value(case_max[:Pg][gen]))*value(mo[:τ_Pg][gen]) for gen in case_max[:gens]) +
-        #         sum((case_max[:Ses][gen] - value(case_max[:Ses][gen]))*value(mo[:τ_Ses][gen]) for gen in keys(case_dict[:battery])))
-        #     end
-        # end
-        optimize!(case_max)
-        global total_solves
-        total_solves += 1
-        @assert termination_status(case_max) == MOI.OPTIMAL
-        if objective_value(case_max) <= 0
-            @warn objective_value(case_max)
-        end
-        if objective_value(case_max) >= wst_case_value
-            wst_case_value = objective_value(case_max)
-            wst_vertex = vertex
-            # wst_case_max = deepcopy(case_max)
-        end
+    vertice = model.vertice
+    objectives_along_vertice = SharedArray{Float64}(length(vertice))
+    # m = deepcopy(case_max)
+    # model_shared = [m for t in 1:length(vertice)]
+    @sync @distributed for i in 1:length(vertice) #vertex enumeration getting the worst case
+        val = Problems.fix_and_optimize(t,i)
+        objectives_along_vertice[i] = objective_value(val)
     end
-    # for (idx,gen) in enumerate(keys(case_dict[:windfarm]))
-    #     fix(case_max[:Pw_err][gen],wst_vertex[idx]*α*data[:wind_power][gen])
-    # end
-    # optimize!(case_max)
-    # @info(wst_vertex)
-    return case_max,wst_vertex
+    ending = time()
+    @info(ending - start) 
+    global total_solves
+    total_solves += length(vertice)
+    ind = findmax(objectives_along_vertice)[2]
+    wst_vertex = vertice[ind]
+    return wst_vertex
 end
 function vertex_enumeration_dual(case_max,vertice,case_dict,data,t,N_ITER)
     wst_case_value = 0
@@ -568,36 +564,36 @@ function vertex_enumeration_dual(case_max,vertice,case_dict,data,t,N_ITER)
     total_solves += 1
     return case_max,wst_vertex
 end
-function ForwardPassPrimal(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},vertice::Array{},case_dict::Dict,data,N_ITER)
-    additional = Dict()
-    additional[:upper] = []
+function ForwardPassPrimal(model::RealTimeDispatchModel,N_ITER,start,stop,additional)
+    # additional = Dict()
+    # additional[:upper] = []
     gap = 0
     differ = 0
-    @assert length(intraday) == length(vertice)
+    @assert length(model.intraday) == length(model.vertice)
     # intradayMax = deepcopy(intradayMax)
     # intraday = deepcopy(intraday)
-    for t in 1:length(intraday) #前推步骤
-        case_base = deepcopy(intraday[t])
-        case_max = deepcopy(intradayMax[t])
+    for t in start:stop #前推步骤
+        # case_base = deepcopy(intraday[t])
+        # case_max = deepcopy(intradayMax[t])
         # fix the dayahead decision
         if t == 1
-            case_base = fixall(case_base,Nothing,dayahead,case_dict,t)
-            case_max = fixall(case_max,Nothing,dayahead,case_dict,t)
+            @time @everywhere fixall(t) # RealTimeDispatch model are exposed to all workers in Main Module
         else
-            case_base = fixall(case_base,intraday[t-1],dayahead,case_dict,t)
-            case_max = fixall(case_max,intraday[t-1],dayahead,case_dict,t)
+            @time @everywhere fixall(t)
         end
+        case_base = model.intraday[t]
+        case_max = model.intradayMax[t]
         # vertex_enumeration //makes case_max dirty
         # case_max_clean = deepcopy(case_max)
-        case_max,wst_vertex = vertex_enumeration_primal(case_max,vertice[t],case_dict,data[t],t,N_ITER)
+        wst_vertex = vertex_enumeration_primal(t)
         # fix the worst vertex and calculate the intraday response
-        for (idx,gen) in enumerate(keys(case_dict[:windfarm]))
+        for (idx,gen) in enumerate(keys(model.case_dict[:windfarm]))
             # @info(wst_vertex)
-            fix(case_base[:Pw_err][gen],wst_vertex[idx]*α*data[t][:wind_power][gen])
-            fix(case_max[:Pw_err][gen],wst_vertex[idx]*α*data[t][:wind_power][gen])
+            fix(case_base[:Pw_err][gen],wst_vertex[idx]*α*model.data[t][:wind_power][gen])
+            fix(case_max[:Pw_err][gen],wst_vertex[idx]*α*model.data[t][:wind_power][gen])
         end
-        optimize!(case_base)
-        optimize!(case_max)
+        @suppress optimize!(case_base)
+        @suppress optimize!(case_max)
         global total_solves
         total_solves += 2
         @assert termination_status(case_base) == MOI.OPTIMAL
@@ -607,18 +603,10 @@ function ForwardPassPrimal(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intr
             additional[:LowerBound] = objective_value(case_base)
             additional[:Gap] = (additional[:UpperBound] - additional[:LowerBound])/additional[:UpperBound]
         end
-        differ += value(case_max[:cost_now]) - value(case_base[:cost_now])
-        # case_max[:cost_to_go_copy] =  value(case_max[:cost_to_go])
-        push!(additional[:upper],objective_value(case_max))
-        intradayMax[t] = case_max
-        intraday[t] = case_base
-        # @info("t = $t \n    objective: $(objective_value(case_base))\n    unbalance:$(value.(case_base[:loadCut_aux]))")
-        # obj_now[t] = objective_value(case_base) - value(case_base[:cost_to_go])
     end
-    # additional[:differ] = differ/sum(value(intraday[t][:cost_now]) for t in 1:T)
-    return intraday,intradayMax,additional
+    return additional
 end
-function ForwardPassDual(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},vertice::Array{},case_dict::Dict,data,N_ITER)
+function ForwardPassDual(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},vertice::Array{},case_dict,data,N_ITER)
     additional = Dict()
     additional[:upper] = []
     gap = 0
@@ -666,15 +654,15 @@ function ForwardPassDual(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intrad
     return intraday,intradayMax,intradayMaxToken,additional
 end
 
-function BackwardPassPrimal(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},vertice::Array{},case_dict::Dict,data,N_ITER)
+function BackwardPassPrimal(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},vertice::Array{},case_dict,data,N_ITER,start=1,stop=T)
     # intraday = deepcopy(intraday)
     # intradayMax = deepcopy(intradayMax)
-    for t in [T-x+1 for x in 2:T]#回代步骤
+    for t in [stop-x+start for x in start+1:stop]#回代步骤
         # @info(t)
         # **update the overestimator**
         case_max = intradayMax[t+1]
         # case_max_clean = deepcopy(case_max)
-        case_max,wst_vertex = vertex_enumeration_primal(case_max,vertice[t+1],case_dict,data[t+1],t+1,N_ITER+1)
+        wst_vertex = vertex_enumeration_primal(case_max,vertice[t+1],case_dict,data[t+1],t+1,N_ITER+1)
         for (idx,gen) in enumerate(keys(case_dict[:windfarm]))
             # @info(wst_vertex)
             fix(case_max[:Pw_err][gen],wst_vertex[idx]*α*data[t+1][:wind_power][gen])
@@ -745,7 +733,7 @@ function BackwardPassPrimal(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.
     return intraday,intradayMax
 end
 
-function BackwardPassDual(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},intradayMaxToken::Array{JuMP.Model},vertice::Array{},case_dict::Dict,data,N_ITER,start=1,stop=T)
+function BackwardPassDual(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},intradayMaxToken::Array{JuMP.Model},vertice::Array{},case_dict,data,N_ITER,start=1,stop=T)
     # intraday = deepcopy(intraday)
     # intradayMax = deepcopy(intradayMax)
     for t in [T-x+1 for x in 2:T]#回代步骤
@@ -790,27 +778,54 @@ function BackwardPassDual(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Mo
     return intraday,intradayMax
 end
 
+function stage_with_max_gap(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model})
+    # LsqFit.@. model(x, p) = p[1]*exp(-(x-1)*p[2])
+    # xdata = 1:(length(intraday)-3)
+    # ydata = [(objective_value(intradayMax[t]) - objective_value(intraday[t]))/objective_value(intradayMax[t]) for t in xdata]
+    # p0 = [ydata[1],2]
+    # fit = LsqFit.curve_fit(model, xdata, ydata, p0)
+    # ydata_fitted = model(xdata,fit.param)
+    # normalized = ydata./ydata_fitted
+    # ~,start = findmin(normalized)
+    # start = randperm(T)[1]
+    return 1
+end
+
+function mature_stage(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model})
+    return T
+end
 function RDDP(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},dayahead::JuMP.Model,vertice_series,case_dict,data)
-    obj_prev = [99999.9 for t in 1:T]
-    obj_now = [99999.9 for t in 1:T]
+    # initialize remote solvers
+    @info("$(length(workers())) workers really.")
     n_iter = 0
     global total_solves
     total_solves = 0
     additional = Dict()
+    solution_status = DataFrame(UpperBound=[],LowerBound=[],Gap=[],Time=[],TotalSolves=[]) 
     print_banner(stdout)
     print_iteration_header(stdout)
     t1 = time()
+    start = 1
+    stop = T
     while true
         n_iter += 1
         # intraday,intradayMax,intradayMaxToken,additional = Problems.ForwardPassDual(dayahead,intraday,intradayMax,vertice_series,case_dict,data,n_iter)
-        intraday,intradayMax,additional = @suppress_out Problems.ForwardPassPrimal(dayahead,intraday,intradayMax,vertice_series,case_dict,data,n_iter)
+        intraday,intradayMax,additional = @time Problems.ForwardPassPrimal(dayahead,intraday,intradayMax,vertice_series,case_dict,data,n_iter,start,stop,additional)
+        # ______________________________________________________________________________________________________________
+        # ______________________________________________________________________________________________________________
         additional[:Iteration] = n_iter
         additional[:TotalSolves] = total_solves
         t2 = time()
         additional[:Time] = t2 - t1
-        # @info("****LoadCut = $(sum(value(intraday[t][:loadCut]) for t in 1:T))****")
+        if n_iter >= 5
+            start = stage_with_max_gap(intraday,intradayMax)
+            stop = mature_stage(intraday,intradayMax)
+        end
         print_iteration(stdout,additional)
-        if n_iter >= 200
+        if n_iter >= 2
+            push!(solution_status,additional)
+        end
+        if n_iter >= 2000 || additional[:Time] >= 3600
             printstyled("Fail to converge. ";color=:red)
             print("$n_iter iterations in $(additional[:Time]) seconds. \n")
             break
@@ -820,20 +835,20 @@ function RDDP(intraday::Array{JuMP.Model},intradayMax::Array{JuMP.Model},dayahea
             print("$n_iter iterations in $(round(additional[:Time];digits=3)) seconds. \n")
             break
         end
-        # @info("$n_iter      $(additional[:gap])        $(additional[:differ])")
-        intraday,intradayMax = @suppress_out Problems.BackwardPassPrimal(intraday,intradayMax,vertice_series,case_dict,data,n_iter)
+        # ______________________________________________________________________________________________________________
+        # ______________________________________________________________________________________________________________
+        intraday,intradayMax = @suppress_out Problems.BackwardPassPrimal(intraday,intradayMax,vertice_series,case_dict,data,n_iter,start,stop)
         # intraday,intradayMax = Problems.BackwardPassDual(intraday,intradayMax,intradayMaxToken,vertice_series,case_dict,data,n_iter)
-        # wait_for_key("press any key to continue")
-        # sleep(0.1)
-        # if n_iter%5 == 0
-        #     Base.GC.enable(true)
-        #     Base.GC.enable(true)
-        #     Base.GC.gc()
-        #     Base.GC.enable(false)
-        #     Base.GC.enable(false)
-        # end
     end
-    return intraday,intradayMax,additional
+    return intraday,intradayMax,solution_status
+end
+struct RealTimeDispatchModel
+    dayahead::JuMP.Model
+    intraday::Array{JuMP.Model}
+    intradayMax::Array{JuMP.Model}
+    vertice::Array{}
+    data::Array{}
+    case_dict::Dict
 end
 # function evalutaion(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intradayMax::Array{BilevelJuMP.BilevelModel},ref,data)
 #     Random.seed!(1235)
