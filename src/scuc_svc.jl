@@ -2,19 +2,23 @@ cd("/home/cxlab/syh/repo/SRUC")
 ENV["GKSwstype"]="100"
 #clearconsole()
 using Distributed
-if nprocs() < 10
-    addprocs(10 - nprocs())
+if nprocs() < 6
+    addprocs(6 - nprocs())
 end
 @everywhere using Revise,Suppressor
 using JuMP,Gurobi,PowerModels,CSV,Plots
 # Base.GC.enable(false)
 # Base.GC.enable(false)
-@everywhere includet("src/Problems.jl")
+if nprocs == 1
+    includet("src/Problems.jl")
+else
+    @everywhere includet("src/Problems.jl")
+end
 # define constants and input data
 const T = 24
 silence()
 # case = PowerModels.parse_file(joinpath(@__DIR__, "../res/1-1-2019-98-1.m"))
-casename = "case300"
+casename = "case5"
 case = parse_file("input/"*casename*".m")
 pm = build_model(case, ACPPowerModel,PowerModels.post_opf)
 case_dict = pm.ref[:nw][0];
@@ -51,34 +55,38 @@ optimize!(dayahead)
 @info("loadCut: $(value(sum(dayahead[:loadCut])))")
 @info("ug: $(sum(value.(dayahead[:ug]).data,dims=1))")
 # initialization
-@everywhere intraday = @suppress [Problems.intradayProblem($case_dict,$data[t]) for t in 1:$T]
-@everywhere intraday[$T] = Problems.fix_tail(intraday[$T],$case_dict)# tackle the tail effect
-@everywhere intradayMax = deepcopy(intraday);
-# @everywhere intradayMax = $intradayMax
-# @everywhere 
 uncertainties = [Problems.PolygonUncertaintySet([0,0,0],[1 0 0;0 1 0;0 0 1],1.5),Problems.PolygonUncertaintySet([1,1,1],[1 0 0;0 1 0;0 0 1],1.5)]
 # uncertainties = [Problems.PolygonUncertaintySet([0,0,0],[1 0 0;0 1 0;0 0 1],1.5)]
 vertice = Problems.getUnionVertice(uncertainties)
 vertice_series = [vertice for t in 1:T]
+if nprocs == 1
+    RTD = @suppress Problems.RealTimeDispatchModel(
+        (Dict(:ug=>value.(dayahead[:ug]),:gens=>dayahead[:gens])),
+        [Problems.intradayProblem(case_dict,data[t]) for t in 1:T],
+        [Problems.intradayProblem(case_dict,data[t])  for t in 1:T],
+        [Dict() for t in 1:T],
+        vertice_series,
+        data,
+        case_dict)
+    Problems.fix_tail()
+else
+    @everywhere RTD = @suppress Problems.RealTimeDispatchModel(
+        $(Dict(:ug=>value.(dayahead[:ug]),:gens=>dayahead[:gens])),
+        [Problems.intradayProblem($case_dict,$data[t]) for t in 1:$T],
+        [Problems.intradayProblem($case_dict,$data[t])  for t in 1:$T],
+        [Dict() for t in 1:$T],
+        $vertice_series,
+        $data,
+        $case_dict)
+    @everywhere Problems.fix_tail()
+end
 # @suppress_err begin
 # for t in 1:T
 #     optimize!(intradayMax[t],Gurobi.Optimizer(MIPGap=1e-3,OutputFlag=1))
 # end
 @info("intraday dispatch started\n")
-intraday,intradayMax,solution_status= @timev Problems.RDDP(intraday,intradayMax,dayahead,vertice_series,case_dict,data)
+solution_status= Problems.RDDP(RTD)
 CSV.write("results/"*casename*"_solver_report.csv",solution_status) 
-Ses_curve_dayahead = [[value(dayahead[:Ses][n,t]) for t in 1:T] for n in keys(case_dict[:battery])]
-Ses_curve = [[value(intraday[t][:Ses][n]) for t in 1:T] for n in keys(case_dict[:battery])]
+Ses_curve = [[value(Main.RTD.intraday[t][:Ses][n]) for t in 1:T] for n in keys(case_dict[:battery])]
 # wind_worst = [sum(value(intradayMax[t][:Pw_max][n]) for n in 1:2) for t in 1:T]
-plot(Ses_curve)
-# plot(wind_worst)
-# mean_cost,worst_cost = Problems.evalutaion(dayahead,intraday,intradayMax,case_dict,data)
-# printstyled("------------SUMMARY-------------\n";color=:green)
-# printstyled("Number of iteration: $n_iter\n";color=:blue)
-# printstyled("Intraday expected cost: $mean_cost\n";color=:blue)
-# printstyled("Intraday worst cost: $worst_cost\n";color=:blue)
-Base.GC.enable(true)
-Base.GC.enable(true)
-Base.GC.gc()
-
 plot(Ses_curve)

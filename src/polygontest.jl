@@ -2,9 +2,7 @@
 # using JuMP,CPLEX
 # using JuMP,CDDLib,Polyhedra,Gurobi
 # # includet("Problems.jl")
-# # m = Model();
-# # @variable(m,0<=x[1:4]<=1);
-# # @constraint(m,x[3]+x[4]>=+x[1]+x[2]);
+
 # # # optimize!(m,with_optimizer(Gurobi.Optimizer));
 # # poly = polyhedron(m,CDDLib.Library());
 # # # v = vrep(poly);
@@ -20,15 +18,58 @@
 # # poly = polyhedron(simplex_updated,CDDLib.Library())
 # # p = vrep([[40,50]])
 # # simplex_updated = hrep(convexhull(poly,p))
-using JuMP, Gurobi
-model = Model(with_optimizer(Gurobi.Optimizer))
-@variable(model, x)
-@variable(model, y)
-@variable(model, z)
-@constraint(model, soccon, [x; y; z] in SecondOrderCone())
-@constraint(model, eqcon, x == 1)
-@objective(model, Min, y + z)
-optimize!(model)
-model2 = deepcopy(model)
-@objective(model, Min, 2*y + z)
-optimize!(model)
+using Distributed,SharedArrays
+addprocs(5)
+@everywhere using JuMP, Gurobi
+function make_model()
+    m = Model(with_optimizer(Gurobi.Optimizer));
+    @variable(m,x[1:1000]>=0)
+    @constraint(m,sum(x)>=100 )
+    @objective(m,Min,sum(x[i]^2*i for i in 1:1000))
+    return m
+end
+# function solve_multicore(model)
+#     Base.GC.enable(false)
+#     Base.GC.enable(false)
+#     envs = [Gurobi.Env() for i = 1:25]
+#     envs_pointer = SharedArray{UInt64}(100)
+#     for i = 1:25
+#         envs_pointer[i] = UInt64(envs[i].ptr_env)
+#     end
+#     a = SharedArray{Float64}(100)
+#     @sync @distributed for i = 1:100
+#         p = Ptr{Nothing}(envs_pointer[myid()])
+#         println(p)
+#         env = envs[myid()]
+#         env.ptr_env = p
+#         set_optimizer(model[i],with_optimizer(Gurobi.Optimizer,env))
+#         optimize!(model[i])
+#         # # a[i] = objective_value(model[i])
+#         # println(myid())
+#     end
+#     Base.GC.enable(true)
+#     Base.GC.enable(true)
+# end
+m = make_model()
+model = [m for i = 1:100]
+# container = []
+# # solve_multicore(model)
+# for w in workers()
+#     @spawnat w container
+#     @spawnat w push!(container,Gurobi.Env())
+# end
+function f()
+    @sync @distributed for i = 1:100
+        println(Main.env)
+        set_optimizer(model[i],with_optimizer(Gurobi.Optimizer,env))
+        # optimize!(model[i])
+        # # a[i] = objective_value(model[i])
+        # println(myid())
+    end
+end    
+@everywhere const env = Gurobi.Env()
+a = SharedArray{Float64}(100)
+least = minimum(workers())
+f()
+Base.GC.enable(true)
+Base.GC.enable(true)
