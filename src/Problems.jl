@@ -869,7 +869,7 @@ function ForwardPassDual(dayahead::JuMP.Model,intraday::Array{JuMP.Model},intrad
     additional[:differ] = differ/sum(value(intraday[t][:cost_now]) for t in 1:T)
     return intraday,intradayMax,intradayMaxToken,additional
 end
-
+###
 function BackwardPassPrimal(model::RealTimeDispatchModel,N_ITER,start=1,stop=T)
     # intraday = deepcopy(intraday)
     # intradayMax = deepcopy(intradayMax)
