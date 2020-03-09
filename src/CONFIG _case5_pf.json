@@ -1,0 +1,26 @@
+{
+    "CoreNumber":1,
+    "T":24,
+    "ramp":0.33,
+    "UT":4,
+    "DT":4,
+    "γ_load":200000,
+    "γ_wind":5000,
+    "γ_es":5000,
+    "α":0.1,
+    "K_seg":5,
+    "has_pf":true,
+    "PenaltyFactor":100,
+    "casename":"case5",
+    "battery":{
+        "pmax_out" : 1.0,
+        "deg_cost" : 0.01,
+        "C_max"    : 6.0,
+        "pmax_in"  : 1.0,
+        "SOC_min"  : 0.1,
+        "SOC_int"  : 0.5,
+        "η_out"    : 0.7,
+        "η_in"     : 0.7,
+        "SOC_max"  : 0.9,
+    }
+}
