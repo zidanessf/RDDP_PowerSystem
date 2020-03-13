@@ -1,1 +1,0 @@
-python -m grpc_tools.protoc -I proto --python_out=./python_client --grpc_python_out=./python_client proto/EconomicalRegion.proto
